@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aquasecurity/postee/v2/data"
 	"github.com/aquasecurity/postee/v2/formatting"
 	"github.com/aquasecurity/postee/v2/layout"
 	"github.com/aquasecurity/postee/v2/log"
 
+	"github.com/aquasecurity/postee/v2/data"
 	msteams "github.com/aquasecurity/postee/v2/teams"
 )
 
@@ -67,8 +67,7 @@ func (teams *TeamsWorkflowsOutput) Send(input map[string]string) (data.OutputRes
 		body = input["description"]
 	}
 
-	// Clean up HTML tags for Adaptive Card text display
-	// Adaptive Cards use markdown-like formatting, not HTML
+	// Clean up HTML tags for card text display
 	body = cleanupForAdaptiveCard(body)
 
 	log.Logger.Debugf("Message is: %q", body)
@@ -171,4 +170,3 @@ func stripHTMLTags(content string) string {
 
 	return result.String()
 }
-

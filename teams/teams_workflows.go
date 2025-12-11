@@ -16,6 +16,14 @@ type AdaptiveCard struct {
 	Schema  string        `json:"$schema"`
 	Version string        `json:"version"`
 	Body    []interface{} `json:"body"`
+	Actions []Action      `json:"actions,omitempty"`
+}
+
+// Action represents an action button in an Adaptive Card
+type Action struct {
+	Type  string `json:"type"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
 }
 
 // TextBlock represents a text element in an Adaptive Card
@@ -74,9 +82,14 @@ const (
 	EventTypeUnknown    EventType = "unknown"
 )
 
-// CreateWorkflowsMessage sends a message via Teams Workflows webhook
+// CreateWorkflowsMessage sends a message via Teams Workflows webhook using Adaptive Card format
+// CreateWorkflowsMessage sends a message via Teams Workflows webhook using Adaptive Card format
 func CreateWorkflowsMessage(webhook, title, content string) error {
-	card := buildAdaptiveCard(title, content)
+	// Extract raw event data from the content
+	rawData := extractRawEventData(content)
+
+	// Build and send Adaptive Card
+	card := buildAdaptiveCard(title, rawData)
 
 	jsonData, err := json.Marshal(card)
 	if err != nil {
@@ -104,6 +117,70 @@ func CreateWorkflowsMessage(webhook, title, content string) error {
 	}
 
 	return nil
+}
+
+// extractRawEventData extracts the raw event data from content
+// It handles the case where content might be:
+// 1. Raw JSON event data (from raw-message-json template)
+// 2. Rego template processed output (wrapped in type: "message", attachments)
+// 3. Plain text
+func extractRawEventData(content string) string {
+	// Try to parse as JSON first
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &data); err != nil {
+		// Not valid JSON, return as-is
+		return content
+	}
+
+	// Check if this is a rego template wrapped message (type: "message" with attachments)
+	if msgType, ok := data["type"].(string); ok && msgType == "message" {
+		if attachments, ok := data["attachments"].([]interface{}); ok && len(attachments) > 0 {
+			// This is a rego template output, try to extract the original input
+			// The rego template might have embedded the original data somewhere
+			// For now, we'll look for common fields that indicate raw event data
+			if firstAttachment, ok := attachments[0].(map[string]interface{}); ok {
+				if cardContent, ok := firstAttachment["content"].(map[string]interface{}); ok {
+					// Check if there's body content we can use
+					if body, ok := cardContent["body"].([]interface{}); ok && len(body) > 1 {
+						// Try to find the text block with original JSON
+						for _, item := range body {
+							if block, ok := item.(map[string]interface{}); ok {
+								if blockType, ok := block["type"].(string); ok && blockType == "TextBlock" {
+									if text, ok := block["text"].(string); ok {
+										// This might be JSON-stringified event data
+										var rawData map[string]interface{}
+										if err := json.Unmarshal([]byte(text), &rawData); err == nil {
+											// Successfully parsed, this is the raw event data
+											return text
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Check if this looks like raw event data by looking for common event fields
+	if _, hasImage := data["image"]; hasImage {
+		return content // This is raw event data
+	}
+	if _, hasInsight := data["insight"]; hasInsight {
+		return content // This is raw event data
+	}
+	if _, hasCategory := data["category"]; hasCategory {
+		if _, hasSeverity := data["severity_score"]; hasSeverity {
+			return content // This is incident data
+		}
+	}
+	if _, hasIssueDetails := data["issue_details"]; hasIssueDetails {
+		return content // This is issue data
+	}
+
+	// Return as-is - might be some other format
+	return content
 }
 
 // buildAdaptiveCard creates a formatted Adaptive Card from the input
@@ -1259,4 +1336,28 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// capitalize capitalizes the first letter of a string
+func capitalize(s string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
+}
+
+// formatSeverity converts a numeric priority/severity to a string
+func formatSeverity(priority float64) string {
+	switch priority {
+	case 0:
+		return "Critical"
+	case 1:
+		return "High"
+	case 2:
+		return "Medium"
+	case 3:
+		return "Low"
+	default:
+		return "Unknown"
+	}
 }
